@@ -1,4 +1,4 @@
-epochs: 100
+epochs: 50
 batch_size: 4096
 lr: 0.0001
 defaults:
