@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #change this for a new model
-export MODELPATH=/home/joosep/ml-tau-reco/outputs/2024-03-28/18-11-09/
+export MODELPATH=/home/hardiveski/ml-tau-reco/outputs/2024-04-02/13-31-15
 export NUM_FILES=500
 
 #don't change these

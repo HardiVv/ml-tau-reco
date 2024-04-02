@@ -251,27 +251,8 @@ def model_loop(model, ds_loader, optimizer, scheduler, is_train, dev, tensorboar
     loss_p4_tot = 0.0
     loss_dm_tot = 0.0
     
-    #dm_weights = torch.ones(16).to(device=dev) # adding equal weights to dm
+    dm_weights = torch.ones(16).to(device=dev) # adding equal weights to dm
     
-    # lisada esinemise arvu pöördväärtusele kaalud nt 1/DM1 (1000 faili)
-    dm_weights = torch.Tensor([
-        9.019572472264814e-05,
-        3.538445207175967e-05,
-        8.599191675982457e-05,
-        0.0007067137809187279,
-        0.00909090909090909,
-        0.0021141649048625794,
-        0.005988023952095809,
-        0.06666666666666667,
-        0.3333333333333333,
-        0,
-        8.960573476702509e-05,
-        0.0001849796522382538,
-        0.001594896331738437,
-        0,
-        0,
-        0.00024807740014884643]
-        ).to(device=dev)
 
     if is_train:
         model.train()
