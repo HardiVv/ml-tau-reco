@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #change this for a new model
-export MODELPATH=/home/hardiveski/ml-tau-reco/outputs/2024-04-02/13-31-15
-export NUM_FILES=500
+export MODELPATH=/home/hardiveski/ml-tau-reco/outputs/2024-04-02/14-59-33
+export NUM_FILES=-1
 
 #don't change these
 export DATAPATH=/scratch/persistent/joosep/ml-tau/20240328_hepmc_genjets

@@ -276,8 +276,8 @@ def model_loop(model, ds_loader, optimizer, scheduler, is_train, dev, tensorboar
         # millistel jettidel dm polnud -1
         # kui maskis on kõik flase / -1 siis tekib tühi vektor ->>
         true_istau_mask = batch.gen_tau_decaymode != -1 # ainult jetid kus olid tau, arvutame dm
-        print('\nGen tau gecay mode --- >>>>',batch.gen_tau_decaymode)
-        print('\nGen tau gecay mode MASK --- >>>>',true_istau_mask)
+        #print('\nGen tau gecay mode --- >>>>',batch.gen_tau_decaymode)
+        #print('\nGen tau gecay mode MASK --- >>>>',true_istau_mask)
         true_istau = true_istau_mask.to(dtype=torch.float32)
         pred_p4 = pred_p4 * true_istau.unsqueeze(-1)
         weights = torch.ones(len(batch.jet_features), dtype=torch.float32, device=dev)
@@ -294,7 +294,7 @@ def model_loop(model, ds_loader, optimizer, scheduler, is_train, dev, tensorboar
         #compute the loss between the predicted decay mode values and the true values, for the cases where the jet was really from tau 
         if torch.sum(true_istau_mask)==0:
             loss_dm = torch.Tensor([0]) # kui esineb nan siis los on 0
-            print('\nTühi vektor')
+            #print('\nTühi vektor')
         else:
             #print('\npred_dm true tau mask',pred_dm[true_istau_mask].shape)
             #print('\ndm_weights',dm_weights.shape)
@@ -304,13 +304,13 @@ def model_loop(model, ds_loader, optimizer, scheduler, is_train, dev, tensorboar
         
 
         if torch.isnan(loss_dm):
-            print('\nNNANANANANANAN')
-            print('\n pred_dm nan ',pred_dm[true_istau_mask])
-            print('\n true_dm onehot nan',true_dm_onehot)
+            print('\nNot a number')
+            #print('\n pred_dm nan ',pred_dm[true_istau_mask])
+            #print('\n true_dm onehot nan',true_dm_onehot)
         
         #print('\nLosses p4 ',loss_p4)#, loss_cls, loss_dm)
         #print('\nLosses cls ',loss_cls)
-        print('\nLosses dm ',loss_dm)
+        #print('\nLosses dm ',loss_dm)
         #sum all loss components from binary classification, momentum regression and decay mode prediction
         loss = loss_cls + loss_p4 + loss_dm
         
