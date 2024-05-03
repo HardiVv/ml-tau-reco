@@ -56,7 +56,7 @@ class TauJetDataset(Dataset):
             "is_n_had",
             "is_gamma",
             "is_ele",
-            "is_mu",
+            "is_mu", # 14 tk
         ]
 
         self.pf_extras = [
@@ -67,7 +67,7 @@ class TauJetDataset(Dataset):
             "reco_cand_dz_err",
             "reco_cand_d3_err",
             "reco_cand_d0_err",
-            "reco_cand_z0_err",
+            "reco_cand_z0_err", # 8 tk
         ]
 
     @property
@@ -132,7 +132,7 @@ class TauJetDataset(Dataset):
         )
         pfs["pt"] = pfP4.pt
         pfs["eta"] = pfP4.eta
-        pfs["phi"] = pfP4.phi
+        pfs["phi"] = pfP4.phi 
         pfs["e"] = pfP4.energy
 
         pfs["is_ch_had"] = pfs["pdg"] == 211
