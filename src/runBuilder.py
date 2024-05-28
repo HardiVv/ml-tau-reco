@@ -19,7 +19,6 @@ from ParticleTransformerTauBuilder import ParticleTransformerTauBuilder
 from DeepTauBuilder import DeepTauBuilder
 from deeptauTraining import DeepTau
 
-
 def process_single_file(input_path: str, builder, output_dir) -> None:
     output_path = os.path.join(output_dir, os.path.basename(input_path))
     if not os.path.exists(output_path):
@@ -47,8 +46,14 @@ def build_taus(cfg: DictConfig) -> None:
         builder = GridBuilder(verbosity=cfg.verbosity)
     elif cfg.builder == "FastCMSTau":
         builder = FastCMSTauBuilder()
+    
+    # viimane treeningu state on data model.pt, iga kord kirjutab üle
+    # data model pt kirjutatakse üle pärast simplednn jooksutamist
+       
     elif cfg.builder == "SimpleDNN":
-        pytorch_model = torch.load("data/model.pt", map_location=torch.device("cpu"))
+         # lic copy model_best.pt path
+        TAU_MODEL_FILE = os.environ["TAU_MODEL_FILE"]
+        pytorch_model = torch.load(TAU_MODEL_FILE, map_location=torch.device("cpu"))
         assert pytorch_model.__class__ == TauEndToEndSimple
         builder = SimpleDNNTauBuilder(pytorch_model)
     elif cfg.builder == "LorentzNet":

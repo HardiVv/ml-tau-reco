@@ -68,27 +68,52 @@ class EarlyStopper:
         elif validation_loss > (self.min_validation_loss + self.min_delta):
             self.counter += 1
             if self.patience >= 0 and self.counter >= self.patience:
-                print(f"val_los has not decreased in {self.patience} epochs, stopping")
+                #print(f"val_los has not decreased in {self.patience} epochs, stopping")
+                print("val_loss has not decreased in {} epochs, stopping".format(self.patience))
                 return True
         return False
 
 
 class TauEndToEndSimple(nn.Module):
     def __init__(self, sparse_mode=False):
+        """SIIN DEFINITSIOONID JA INITSIAALID"""
         super(TauEndToEndSimple, self).__init__()
 
         self.act = nn.ReLU
         self.act_obj = self.act()
-        self.dropout = 0.1
+        self.dropout = 0.1 # tõenäosus disablib ffn'is paar node During training, randomly zeroes some of the elements of the input tensor with probability p using samples from a Bernoulli distribution
         self.width = 512
-        self.embedding_dim = 512
+        self.embedding_dim = 1024
         self.sparse_mode = sparse_mode
 
         self.num_jet_features = 8
-        self.num_pf_features = 36
+        self.num_pf_features = 22 # pf_features ja pf_extras (taujetdataset.py)
 
+        self.num_decaymodes = 16 # decay modes
+        
+        # lagunemiskanalid
+        self.dm_mapping = {
+                0: 'OneProng0PiZero',
+                1: 'OneProng1PiZero',
+                2: 'OneProng2PiZero',
+                3: 'OneProng3PiZero',
+                4: 'OneProngNPiZero',
+                5: 'TwoProng0PiZero',
+                6: 'TwoProng1PiZero',
+                7: 'TwoProng2PiZero',
+                8: 'TwoProng3PiZero',
+                9: 'TwoProngNPiZero',
+                10: 'ThreeProng0PiZero',
+                11: 'ThreeProng1PiZero',
+                12: 'ThreeProng2PiZero',
+                13: 'ThreeProng3PiZero',
+                14: 'ThreeProngNPiZero',
+                15: 'RareDecayMode'
+            }
+        
+        # iga osakese jaoks korrelatsioonid
         self.nn_pf_initialembedding = ffn(self.num_pf_features, self.embedding_dim, self.width, self.act, self.dropout)
-
+        
         self.A_mean = torch.nn.Parameter(data=torch.Tensor(self.num_jet_features), requires_grad=False)
         self.A_std = torch.nn.Parameter(data=torch.Tensor(self.num_jet_features), requires_grad=False)
         self.B_mean = torch.nn.Parameter(data=torch.Tensor(self.num_pf_features), requires_grad=False)
@@ -98,40 +123,67 @@ class TauEndToEndSimple(nn.Module):
             self.agg1 = torch_geometric.nn.MeanAggregation()
             self.agg2 = torch_geometric.nn.MaxAggregation()
             self.agg3 = torch_geometric.nn.StdAggregation()
-            # self.agg4 = torch_geometric.nn.AttentionalAggregation(
+            # self.agg4 = torch_geometric.nn.AttentionalAggregation()
             # ffn(self.embedding_dim, 1, self.width, self.act, self.dropout))
 
         self.nn_pred_istau = ffn(self.num_jet_features + 3 * self.embedding_dim, 2, self.width, self.act, self.dropout)
         self.nn_pred_p4 = ffn(self.num_jet_features + 3 * self.embedding_dim, 4, self.width, self.act, self.dropout)
+        
+        # ffn definitsiooni DM kohta
+        self.nn_pred_dm = ffn(self.num_jet_features + 3 * self.embedding_dim, self.num_decaymodes, self.width, self.act, self.dropout) 
 
-    # forward function for training with pytorch geometric
+
+    # forward function for training with pytorch geometric    
     def forward_sparse(self, inputs):
-        jet_features, jet_pf_features, jet_pf_features_batch = inputs
+        """SIIN ARVUTUSED"""
+        #print('\n  -->',)
+        jet_features, jet_pf_features, jet_pf_features_batch = inputs # jettide osakeste featureid
+        
+        #print('\n inputs -->',inputs[0].shape)
+        #print('\n inputs -->',inputs[1].shape)
+        #print('\n inputs -->',inputs[-1].shape)
+        #print('\n inputs -->',inputs[-1])
 
-        jet_features_normed = jet_features - self.A_mean
-        jet_features_normed = jet_features_normed / self.A_std
+        
+        jet_features_normed = jet_features - self.A_mean # normeerime 0 ümber
+        jet_features_normed = jet_features_normed / self.A_std # skaleerimine vahemikku [-std, 0, std]
         jet_pf_features_normed = jet_pf_features - self.B_mean
         jet_pf_features_normed = jet_pf_features_normed / self.B_std
-
+        #print('\n jet_features_normed shape -->',jet_features_normed.shape)
+        
         pf_encoded = self.act_obj(self.nn_pf_initialembedding(jet_pf_features_normed))
+        #print('\n pf_encoded -->',pf_encoded.shape)
 
+        # proovida agg1(act_obj())
         # # now collapse the PF information in each jet with a global attention layer
         jet_encoded1 = self.act_obj(self.agg1(pf_encoded, jet_pf_features_batch))
         jet_encoded2 = self.act_obj(self.agg2(pf_encoded, jet_pf_features_batch))
         jet_encoded3 = self.act_obj(self.agg3(pf_encoded, jet_pf_features_batch))
-        # jet_encoded4 = self.act_obj(self.agg4(pf_encoded, jet_pf_features_batch))
+        #jet_encoded4 = self.act_obj(self.agg4(pf_encoded, jet_pf_features_batch))
+        #print('\n jet_encoded1 -->',jet_encoded1.shape)
+
 
         # get the list of per-jet features as a concat of
         jet_feats = torch.cat([jet_features_normed, jet_encoded1, jet_encoded2, jet_encoded3], axis=-1)
+        #print('\n jet_feats -->', jet_feats.shape) # 1544 = 512 * 3 + 8
 
         # run a binary classification whether or not this jet is from a tau
-        pred_istau = self.nn_pred_istau(jet_feats)
-
+        pred_istau = self.nn_pred_istau(jet_feats) # 2 väljudit, jah v ei 
+        #print('\n  pred_istau-->',pred_istau.shape)
+        
         # run a per-jet NN for visible energy prediction
         jet_p4 = jet_features[:, :4]
+        #print('\n  jet_p4-->',jet_p4.shape)
         pred_p4 = jet_p4 * self.nn_pred_p4(jet_feats)
+        #print('\n  pred_p4-->', pred_p4.shape)
+        #print('\n  self.nn_pred_p4(jet_feats).shape-->',self.nn_pred_p4(jet_feats).shape)
+    
+        pred_dm = self.nn_pred_dm(jet_feats) # toore linear layer
+        #print('\n pred_dm -->',pred_dm)
+        #print('\n pred_dm -->',pred_dm.shape)
+        #print('\n pred_dm -->',pred_dm[0].shape)
+        return pred_istau, pred_p4, pred_dm
 
-        return pred_istau, pred_p4
 
     # custom forward function for HLS4ML export, assuming a single 3D input
     def forward_3d(self, inputs):
@@ -159,9 +211,10 @@ class TauEndToEndSimple(nn.Module):
         jet_encoded1 = self.act_obj(torch.mean(pf_encoded, axis=1))
         jet_encoded2 = self.act_obj(torch.max(pf_encoded, axis=1).values)
         jet_encoded3 = self.act_obj(torch.std(pf_encoded, axis=1))
+        jet_encoded4 = self.act_obj(torch.std(pf_encoded, axis=1))
 
         # get the list of per-jet features as a concat of
-        jet_features = torch.cat([jet_features_normed, jet_encoded1, jet_encoded2, jet_encoded3], axis=-1)
+        jet_features = torch.cat([jet_features_normed, jet_encoded1, jet_encoded2, jet_encoded3, jet_encoded4], axis=-1)
 
         # run a binary classification whether or not this jet is from a tau
         pred_istau = self.nn_pred_istau(jet_features)
@@ -192,11 +245,14 @@ def weighted_bce_with_logits(pred_istau, true_istau, weights):
     weighted_loss_cls = loss_cls * weights
     return weighted_loss_cls.mean()
 
-
 def model_loop(model, ds_loader, optimizer, scheduler, is_train, dev, tensorboard_writer):
     global ISTEP_GLOBAL
     loss_cls_tot = 0.0
     loss_p4_tot = 0.0
+    loss_dm_tot = 0.0
+    
+    dm_weights = torch.ones(16).to(device=dev) # adding equal weights to dm
+    
 
     if is_train:
         model.train()
@@ -209,18 +265,55 @@ def model_loop(model, ds_loader, optimizer, scheduler, is_train, dev, tensorboar
     class_true = []
     class_pred = []
     for ibatch, batch in enumerate(tqdm.tqdm(ds_loader, total=len(ds_loader))):
+        """loop üle jettide"""
         optimizer.zero_grad()
         batch = batch.to(device=dev)
-        pred_istau, pred_p4 = model((batch.jet_features, batch.jet_pf_features, batch.jet_pf_features_batch))
+        
+        # siia pred_dm ja lossiga optimeerida
+        pred_istau, pred_p4, pred_dm = model((batch.jet_features, batch.jet_pf_features, batch.jet_pf_features_batch))
         true_p4 = batch.gen_tau_p4
-        true_istau = (batch.gen_tau_decaymode != -1).to(dtype=torch.float32)
+        
+        # millistel jettidel dm polnud -1
+        # kui maskis on kõik flase / -1 siis tekib tühi vektor ->>
+        true_istau_mask = batch.gen_tau_decaymode != -1 # ainult jetid kus olid tau, arvutame dm
+        #print('\nGen tau gecay mode --- >>>>',batch.gen_tau_decaymode)
+        #print('\nGen tau gecay mode MASK --- >>>>',true_istau_mask)
+        true_istau = true_istau_mask.to(dtype=torch.float32)
         pred_p4 = pred_p4 * true_istau.unsqueeze(-1)
-        weights = batch.weight
+        weights = torch.ones(len(batch.jet_features), dtype=torch.float32, device=dev)
 
-        loss_p4 = 1e5 * weighted_huber_loss(pred_p4, true_p4, weights)
-        loss_cls = 1e7 * weighted_bce_with_logits(pred_istau, true_istau, weights)
+        loss_p4 = weighted_huber_loss(pred_p4, true_p4, weights)
+        loss_cls = weighted_bce_with_logits(pred_istau, true_istau, weights)
 
-        loss = loss_cls + loss_p4
+        #get the numerical decay mode values for the jets that actually were from a tau
+        true_dm_vals = batch.gen_tau_decaymode[true_istau_mask].to(torch.int64)
+
+        #convert decay mode values from 0...16 ints > to one-hot encoded vectors [0,0,0...,1,...,0] where for value N, the N-th bit is set.
+        true_dm_onehot = torch.nn.functional.one_hot(true_dm_vals, model.num_decaymodes).to(torch.float32)
+
+        #compute the loss between the predicted decay mode values and the true values, for the cases where the jet was really from tau 
+        if torch.sum(true_istau_mask)==0:
+            loss_dm = torch.Tensor([0]) # kui esineb nan siis los on 0
+            #print('\nTühi vektor')
+        else:
+            #print('\npred_dm true tau mask',pred_dm[true_istau_mask].shape)
+            #print('\ndm_weights',dm_weights.shape)
+            #print('\ntrue_dm_onehot',true_dm_onehot.shape)
+
+            loss_dm = torch.nn.functional.cross_entropy(pred_dm[true_istau_mask], true_dm_onehot, weight=dm_weights)
+        
+
+        if torch.isnan(loss_dm):
+            print('\nNot a number')
+            #print('\n pred_dm nan ',pred_dm[true_istau_mask])
+            #print('\n true_dm onehot nan',true_dm_onehot)
+        
+        #print('\nLosses p4 ',loss_p4)#, loss_cls, loss_dm)
+        #print('\nLosses cls ',loss_cls)
+        #print('\nLosses dm ',loss_dm)
+        #sum all loss components from binary classification, momentum regression and decay mode prediction
+        loss = loss_cls + loss_p4 + loss_dm
+        
         if is_train:
             loss.backward()
             optimizer.step()
@@ -231,15 +324,19 @@ def model_loop(model, ds_loader, optimizer, scheduler, is_train, dev, tensorboar
         else:
             class_true.append(true_istau.cpu().numpy())
             class_pred.append(torch.softmax(pred_istau, axis=-1)[:, 1].detach().cpu().numpy())
+        
         loss_cls_tot += loss_cls.detach().cpu().item()
         loss_p4_tot += loss_p4.detach().cpu().item()
+        loss_dm_tot += loss_dm.detach().cpu().item() # dm total loss
+        
         nsteps += 1
         njets += batch.jet_features.shape[0]
         sys.stdout.flush()
+
     if not is_train:
         class_true = np.concatenate(class_true)
         class_pred = np.concatenate(class_pred)
-    return loss_cls_tot / njets, loss_p4_tot / njets, (class_true, class_pred)
+    return loss_cls_tot / njets, loss_p4_tot / njets,loss_dm_tot / njets ,(class_true, class_pred)
 
 
 def count_parameters(model):
@@ -260,14 +357,17 @@ class SimpleDNNTauBuilder(BasicTauBuilder):
 
     def processJets(self, jets):
         ds = TauJetDataset()
-        data_obj = Batch.from_data_list(ds.process_file_data(jets), follow_batch=["jet_pf_features"])
-        pred_istau, pred_p4 = self.model((data_obj.jet_features, data_obj.jet_pf_features, data_obj.jet_pf_features_batch))
+        data_obj = Batch.from_data_list(ds.process_file_data(jets, filter_leptonic=False), follow_batch=["jet_pf_features"])
+        #lisan
+        pred_istau, pred_p4, pred_dm = self.model((data_obj.jet_features, data_obj.jet_pf_features, data_obj.jet_pf_features_batch))
 
         pred_istau = torch.softmax(pred_istau, axis=-1)[:, 1]
         pred_istau = pred_istau.contiguous().detach().numpy()
         # to solve "ValueError: ndarray is not contiguous"
         pred_p4 = np.asfortranarray(pred_p4.detach().contiguous().numpy())
-
+        # lisan
+        pred_dm_value = torch.argmax(pred_dm, axis=-1)
+        
         njets = len(jets["reco_jet_p4s"]["x"])
         assert njets == len(pred_istau)
         assert njets == len(pred_p4)
@@ -285,7 +385,6 @@ class SimpleDNNTauBuilder(BasicTauBuilder):
 
         # dummy placeholders for now
         tauCharges = np.zeros(njets)
-        dmode = np.zeros(njets)
 
         # as a dummy placeholder, just return the first PFCand for each jet
         tau_cand_p4s = jets["reco_cand_p4s"][:, 0:1]
@@ -294,7 +393,7 @@ class SimpleDNNTauBuilder(BasicTauBuilder):
             "tauSigCand_p4s": tau_cand_p4s,
             "tauClassifier": pred_istau,
             "tau_charge": tauCharges,
-            "tau_decaymode": dmode,
+            "tau_decaymode": pred_dm_value, # siia ilmselt muudatus
         }
 
 
@@ -331,7 +430,6 @@ class MyIterableDataset(torch.utils.data.IterableDataset):
 
             # get jets from this file
             jets = self.ds.get(idx)
-
             # shuffle jets from the file
             random.shuffle(jets)
 
@@ -352,6 +450,8 @@ def main(cfg):
 
     ds_train = TauJetDataset("data/dataset_train")
     ds_val = TauJetDataset("data/dataset_validation")
+    assert(len(ds_train)>0)
+    assert(len(ds_val)>0)
 
     # load a part of the training set to memory to get feature standardization coefficients
     train_data = [ds_train.get(i) for i in range(min(10, len(ds_train)))]
@@ -412,21 +512,26 @@ def main(cfg):
     early_stopper = EarlyStopper(patience=50, min_delta=10)
 
     best_loss = np.inf
-    for iepoch in range(cfg.epochs):
-        loss_cls_train, loss_p4_train, _ = model_loop(
+    
+    for iepoch in range(cfg.epochs): # siin on epochide arv
+    #for iepoch in range(40): # loss_val_dm on hakkab 30 juures tõusma
+        loss_cls_train, loss_p4_train, loss_dm_train, _ = model_loop(
             model, ds_train_loader, optimizer, scheduler, True, dev, tensorboard_writer
         )
+        
         tensorboard_writer.add_scalar("epoch/train_cls_loss", loss_cls_train, iepoch)
         tensorboard_writer.add_scalar("epoch/train_p4_loss", loss_p4_train, iepoch)
+        tensorboard_writer.add_scalar("epoch/train_dm_loss", loss_dm_train, iepoch) # lisan selle
         tensorboard_writer.add_scalar("epoch/train_loss", loss_cls_train + loss_p4_train, iepoch)
-
-        loss_cls_val, loss_p4_val, retvals = model_loop(
+        # lisan loss dm
+        loss_cls_val, loss_p4_val, loss_dm_val, retvals = model_loop(
             model, ds_val_loader, optimizer, scheduler, False, dev, tensorboard_writer
         )
-        loss_val = loss_cls_val + loss_p4_val
+        loss_val = loss_cls_val + loss_p4_val + loss_dm_val # lisan loss dm
 
         tensorboard_writer.add_scalar("epoch/val_cls_loss", loss_cls_val, iepoch)
         tensorboard_writer.add_scalar("epoch/val_p4_loss", loss_p4_val, iepoch)
+        tensorboard_writer.add_scalar("epoch/val_dm_loss", loss_dm_val, iepoch) # lisan
         tensorboard_writer.add_scalar("epoch/val_loss", loss_val, iepoch)
 
         tensorboard_writer.add_scalar("epoch/lr", scheduler.get_last_lr()[0], iepoch)
@@ -435,10 +540,10 @@ def main(cfg):
         # In the following retvals[1] is returned as always as NaN for some reason
         fpr, tpr, thresh = sklearn.metrics.roc_curve(retvals[0], np.nan_to_num(retvals[1]))
         tensorboard_writer.add_scalar("epoch/fpr_at_tpr0p6", fpr[np.searchsorted(tpr, 0.6)], iepoch)
-
+        #print('\nLOSS DM TRAIN --> ',loss_dm_train,'<--')
         print(
-            "epoch={} cls={:.4f}/{:.4f} p4={:.4f}/{:.4f}".format(
-                iepoch, loss_cls_train, loss_cls_val, loss_p4_train, loss_p4_val
+            "\nepoch={} \ncls={:.8f}/{:.8f} \np4={:.8f}/{:.8f} \ndm={:.8f}/{:.8f}\n\n".format( # siia ka lisada xd
+                iepoch, loss_cls_train, loss_cls_val, loss_p4_train, loss_p4_val, loss_dm_train, loss_dm_val # lisan
             )
         )
 
